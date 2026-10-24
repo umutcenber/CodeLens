@@ -1,0 +1,6 @@
+﻿fastapi
+uvicorn[standard]
+pylint
+radon
+bandit
+pytest
