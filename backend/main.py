@@ -1,5 +1,6 @@
 ﻿import ast
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -11,15 +12,27 @@ from pydantic import BaseModel, Field
 from radon.complexity import cc_visit
 from radon.metrics import mi_visit
 
+
 app = FastAPI(title="CodeLens API", version="0.1.0")
+
+# Keep local development working and allow the deployed frontend
+# through the FRONTEND_URL environment variable.
+allowed_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+configured_origins = os.getenv("FRONTEND_URL", "")
+
+for origin in configured_origins.split(","):
+    origin = origin.strip().rstrip("/")
+    if origin and origin not in allowed_origins:
+        allowed_origins.append(origin)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
-    allow_methods=["*"],
+    allow_origins=allowed_origins,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -42,12 +55,12 @@ def run_tool(arguments: list[str]) -> subprocess.CompletedProcess:
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(
             status_code=504,
-            detail="Analiz zaman aşımına uğradı.",
+            detail="Analysis timed out.",
         ) from exc
     except OSError as exc:
         raise HTTPException(
             status_code=500,
-            detail="Analiz aracı başlatılamadı.",
+            detail="Could not start an analysis tool.",
         ) from exc
 
 
@@ -66,20 +79,25 @@ def analyze(request: AnalyzeRequest):
     source = request.code
 
     if not source.strip():
-        raise HTTPException(status_code=422, detail="Kod boş olamaz.")
+        raise HTTPException(
+            status_code=422,
+            detail="Code cannot be empty.",
+        )
 
     try:
         ast.parse(source)
     except SyntaxError as exc:
         return {
-            "issues": [{
-                "tool": "Python",
-                "code": "SYNTAX_ERROR",
-                "severity": "high",
-                "message": exc.msg,
-                "line": exc.lineno,
-                "column": exc.offset,
-            }],
+            "issues": [
+                {
+                    "tool": "Python",
+                    "code": "SYNTAX_ERROR",
+                    "severity": "high",
+                    "message": exc.msg,
+                    "line": exc.lineno,
+                    "column": exc.offset,
+                }
+            ],
             "metrics": {
                 "average_complexity": None,
                 "maintainability_index": None,
@@ -90,6 +108,7 @@ def analyze(request: AnalyzeRequest):
 
     try:
         blocks = cc_visit(source)
+
         functions = [
             {
                 "name": block.name,
@@ -98,16 +117,23 @@ def analyze(request: AnalyzeRequest):
             }
             for block in blocks
         ]
+
         average_complexity = (
-            round(sum(item["complexity"] for item in functions)
-                  / len(functions), 2)
-            if functions else 0
+            round(
+                sum(item["complexity"] for item in functions)
+                / len(functions),
+                2,
+            )
+            if functions
+            else 0
         )
+
         maintainability = round(mi_visit(source, multi=True), 2)
+
     except (SyntaxError, ValueError) as exc:
         raise HTTPException(
             status_code=422,
-            detail="Kod metrikleri hesaplanamadı.",
+            detail="Could not calculate code metrics.",
         ) from exc
 
     issues = []
@@ -116,65 +142,93 @@ def analyze(request: AnalyzeRequest):
         file_path = Path(temp_dir) / "submitted_code.py"
         file_path.write_text(source, encoding="utf-8")
 
-        pylint_result = run_tool([
-            "-m", "pylint",
-            "--output-format=json",
-            "--score=n",
-            str(file_path),
-        ])
+        pylint_result = run_tool(
+            [
+                "-m",
+                "pylint",
+                "--output-format=json",
+                "--score=n",
+                str(file_path),
+            ]
+        )
 
         try:
-            pylint_messages = json.loads(pylint_result.stdout or "[]")
+            pylint_messages = json.loads(
+                pylint_result.stdout or "[]"
+            )
         except json.JSONDecodeError as exc:
             raise HTTPException(
                 status_code=502,
-                detail="Pylint sonucu okunamadı.",
+                detail="Could not read the Pylint results.",
             ) from exc
 
         for message in pylint_messages:
             category = message.get("type", "")
+
             severity = (
-                "high" if category in ("error", "fatal")
-                else "medium" if category == "warning"
+                "high"
+                if category in ("error", "fatal")
+                else "medium"
+                if category == "warning"
                 else "low"
             )
-            issues.append({
-                "tool": "Pylint",
-                "code": message.get("message-id"),
-                "severity": severity,
-                "message": message.get("message"),
-                "line": message.get("line"),
-                "column": message.get("column"),
-                "symbol": message.get("symbol"),
-            })
 
-        bandit_result = run_tool([
-            "-m", "bandit",
-            "-f", "json",
-            str(file_path),
-        ])
+            issues.append(
+                {
+                    "tool": "Pylint",
+                    "code": message.get("message-id"),
+                    "severity": severity,
+                    "message": message.get("message"),
+                    "line": message.get("line"),
+                    "column": message.get("column"),
+                    "symbol": message.get("symbol"),
+                }
+            )
+
+        bandit_result = run_tool(
+            [
+                "-m",
+                "bandit",
+                "-f",
+                "json",
+                str(file_path),
+            ]
+        )
 
         try:
-            bandit_data = json.loads(bandit_result.stdout or "{}")
+            bandit_data = json.loads(
+                bandit_result.stdout or "{}"
+            )
         except json.JSONDecodeError as exc:
             raise HTTPException(
                 status_code=502,
-                detail="Bandit sonucu okunamadı.",
+                detail="Could not read the Bandit results.",
             ) from exc
 
         for finding in bandit_data.get("results", []):
-            issues.append({
-                "tool": "Bandit",
-                "code": finding.get("test_id"),
-                "severity": finding.get("issue_severity", "LOW").lower(),
-                "message": finding.get("issue_text"),
-                "line": finding.get("line_number"),
-                "confidence": finding.get("issue_confidence"),
-            })
+            issues.append(
+                {
+                    "tool": "Bandit",
+                    "code": finding.get("test_id"),
+                    "severity": finding.get(
+                        "issue_severity", "LOW"
+                    ).lower(),
+                    "message": finding.get("issue_text"),
+                    "line": finding.get("line_number"),
+                    "confidence": finding.get("issue_confidence"),
+                }
+            )
 
-    severity_order = {"high": 0, "medium": 1, "low": 2}
+    severity_order = {
+        "high": 0,
+        "medium": 1,
+        "low": 2,
+    }
+
     issues.sort(
-        key=lambda item: severity_order.get(item["severity"], 3)
+        key=lambda item: severity_order.get(
+            item["severity"], 3
+        )
     )
 
     return {
