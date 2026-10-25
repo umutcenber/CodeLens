@@ -4,3 +4,4 @@ pylint
 radon
 bandit
 pytest
+httpx2
