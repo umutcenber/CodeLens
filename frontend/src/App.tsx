@@ -28,6 +28,28 @@ type AnalysisResult = {
   };
 };
 
+function getRecommendation(issue: Issue): string | null {
+  if (
+    issue.tool === "Pylint" &&
+    issue.symbol === "missing-module-docstring"
+  ) {
+    return "Add a short description at the top of the file explaining its purpose.";
+  }
+
+  if (
+    issue.tool === "Pylint" &&
+    issue.symbol === "missing-function-docstring"
+  ) {
+    return "Add a docstring inside the function explaining what it does, its parameters, and its return value.";
+  }
+
+  if (issue.tool === "Bandit") {
+    return "Review this security finding carefully. Check the flagged operation and follow the recommended secure coding practices for that type of issue.";
+  }
+
+  return null;
+}
+
 const initialCode = `def add(a, b):
     return a + b
 `;
@@ -44,27 +66,35 @@ function App() {
     setResult(null);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
+      const response = await fetch(
+        "http://127.0.0.1:8000/api/analyze",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ code }),
+        },
+      );
 
       const data = (await response.json()) as AnalysisResult & {
-        detail?: string;
+        detail?: string | { msg?: string }[];
       };
 
       if (!response.ok) {
-        throw new Error(
-          data.detail ?? "Analysis failed. Please try again.",
-        );
+        const detail =
+          typeof data.detail === "string"
+            ? data.detail
+            : "Analysis failed. Please check your code and try again.";
+
+        throw new Error(detail);
       }
 
       setResult(data);
     } catch (err) {
       setError(
         err instanceof Error
-          ? `${err.message}. Make sure the Python server is running.`
+          ? `${err.message} Make sure the Python analysis server is running.`
           : "Could not connect to the analysis server.",
       );
     } finally {
@@ -76,7 +106,10 @@ function App() {
     event: ChangeEvent<HTMLInputElement>,
   ) {
     const file = event.target.files?.[0];
-    if (!file) return;
+
+    if (!file) {
+      return;
+    }
 
     if (!file.name.toLowerCase().endsWith(".py")) {
       setError("Please choose a Python .py file.");
@@ -91,7 +124,9 @@ function App() {
     }
 
     try {
-      setCode(await file.text());
+      const fileContents = await file.text();
+
+      setCode(fileContents);
       setResult(null);
       setError("");
     } catch {
@@ -102,7 +137,9 @@ function App() {
   }
 
   function downloadReport() {
-    if (!result) return;
+    if (!result) {
+      return;
+    }
 
     const report = {
       application: "CodeLens",
@@ -112,15 +149,20 @@ function App() {
       issues: result.issues,
     };
 
-    const blob = new Blob([JSON.stringify(report, null, 2)], {
-      type: "application/json",
-    });
+    const blob = new Blob(
+      [JSON.stringify(report, null, 2)],
+      { type: "application/json" },
+    );
+
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
 
     link.href = url;
     link.download = "codelens-report.json";
+    document.body.appendChild(link);
     link.click();
+    link.remove();
+
     URL.revokeObjectURL(url);
   }
 
@@ -131,8 +173,11 @@ function App() {
       <header className="topbar">
         <a className="brand" href="#">
           <span className="brand-mark">C</span>
-          <span>CodeLens<span className="brand-dot">.</span></span>
+          <span>
+            CodeLens<span className="brand-dot">.</span>
+          </span>
         </a>
+
         <span className="status-pill">
           <span className="status-dot" />
           Python static analysis
@@ -142,11 +187,13 @@ function App() {
       <main className="main-content">
         <section className="hero">
           <p className="eyebrow">YOUR CODE, UNDERSTOOD</p>
+
           <h1>
             Write better code.
             <br />
             <span>See what matters.</span>
           </h1>
+
           <p className="hero-copy">
             Understand complexity, discover potential issues, and
             make your Python code easier to maintain.
@@ -166,7 +213,9 @@ function App() {
                 <input
                   type="file"
                   accept=".py"
-                  onChange={(event) => void handleFileChange(event)}
+                  onChange={(event) =>
+                    void handleFileChange(event)
+                  }
                 />
               </label>
             </div>
@@ -184,20 +233,29 @@ function App() {
                 spellCheck={false}
                 value={code}
                 maxLength={50000}
-                onChange={(event) => setCode(event.target.value)}
+                onChange={(event) => {
+                  setCode(event.target.value);
+                  setError("");
+                  setResult(null);
+                }}
                 placeholder="Paste your Python code here..."
               />
             </div>
 
             <div className="editor-footer">
-              <span>{code.length.toLocaleString()} characters</span>
+              <span>
+                {code.length.toLocaleString()} characters
+              </span>
+
               <button
                 className="analyze-button"
                 onClick={() => void analyzeCode()}
                 disabled={loading || !code.trim()}
               >
                 {loading ? "Analyzing..." : "Analyze code"}
-                {!loading && <span aria-hidden="true">→</span>}
+                {!loading && (
+                  <span aria-hidden="true">→</span>
+                )}
               </button>
             </div>
           </div>
@@ -208,6 +266,7 @@ function App() {
                 <span className="step-label">02 / RESULTS</span>
                 <h2>Analysis report</h2>
               </div>
+
               <button
                 className="download-button"
                 onClick={downloadReport}
@@ -226,15 +285,22 @@ function App() {
 
             {!result && !error && (
               <div className="empty-state">
-                <div className="empty-icon">{loading ? "…" : "⌁"}</div>
+                <div className="empty-icon">
+                  {loading ? "…" : "⌁"}
+                </div>
+
                 <h3>
-                  {loading ? "Reviewing your code" : "Your report starts here"}
+                  {loading
+                    ? "Reviewing your code"
+                    : "Your report starts here"}
                 </h3>
+
                 <p>
                   {loading
                     ? "Checking your code with the analysis tools."
                     : "Run an analysis to discover issues and explore your code metrics."}
                 </p>
+
                 <div className="tool-tags">
                   <span>Pylint</span>
                   <span>Radon</span>
@@ -251,6 +317,7 @@ function App() {
                     <strong>{issueCount}</strong>
                     <small>Reported findings</small>
                   </div>
+
                   <div className="metric-card">
                     <span>Avg. complexity</span>
                     <strong>
@@ -258,6 +325,7 @@ function App() {
                     </strong>
                     <small>Radon measurement</small>
                   </div>
+
                   <div className="metric-card">
                     <span>Maintainability</span>
                     <strong>
@@ -276,30 +344,49 @@ function App() {
                   {issueCount === 0 ? (
                     <div className="success-box">
                       No issues were reported by the enabled tools.
-                      This does not guarantee that the code is bug-free.
+                      This does not guarantee that the code is
+                      bug-free.
                     </div>
                   ) : (
                     <div className="issue-list">
-                      {result.issues.map((issue, index) => (
-                        <article
-                          className="issue-item"
-                          key={`${issue.tool}-${issue.code}-${issue.line}-${index}`}
-                        >
-                          <span
-                            className={`severity severity-${issue.severity.toLowerCase()}`}
+                      {result.issues.map((issue, index) => {
+                        const recommendation =
+                          getRecommendation(issue);
+
+                        return (
+                          <article
+                            className="issue-item"
+                            key={`${issue.tool}-${issue.code}-${issue.line}-${index}`}
                           >
-                            {issue.severity}
-                          </span>
-                          <div className="issue-content">
-                            <p>{issue.message}</p>
-                            <span className="issue-meta">
-                              {issue.tool}
-                              {issue.code ? ` · ${issue.code}` : ""}
-                              {issue.line ? ` · Line ${issue.line}` : ""}
+                            <span
+                              className={`severity severity-${issue.severity.toLowerCase()}`}
+                            >
+                              {issue.severity}
                             </span>
-                          </div>
-                        </article>
-                      ))}
+
+                            <div className="issue-content">
+                              <p>{issue.message}</p>
+
+                              <span className="issue-meta">
+                                {issue.tool}
+                                {issue.code
+                                  ? ` · ${issue.code}`
+                                  : ""}
+                                {issue.line
+                                  ? ` · Line ${issue.line}`
+                                  : ""}
+                              </span>
+
+                              {recommendation && (
+                                <p className="issue-recommendation">
+                                  <strong>Suggestion:</strong>{" "}
+                                  {recommendation}
+                                </p>
+                              )}
+                            </div>
+                          </article>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -308,20 +395,29 @@ function App() {
                   <div className="issues-section">
                     <div className="section-heading">
                       <h3>Functions</h3>
-                      <span>{result.metrics.functions.length} found</span>
+                      <span>
+                        {result.metrics.functions.length} found
+                      </span>
                     </div>
+
                     <div className="function-list">
-                      {result.metrics.functions.map((fn, index) => (
-                        <div className="function-row" key={`${fn.name}-${index}`}>
-                          <div>
-                            <strong>{fn.name}()</strong>
-                            <span>Line {fn.line}</span>
+                      {result.metrics.functions.map(
+                        (fn, index) => (
+                          <div
+                            className="function-row"
+                            key={`${fn.name}-${index}`}
+                          >
+                            <div>
+                              <strong>{fn.name}()</strong>
+                              <span>Line {fn.line}</span>
+                            </div>
+
+                            <span className="complexity-value">
+                              Complexity: {fn.complexity}
+                            </span>
                           </div>
-                          <span className="complexity-value">
-                            Complexity: {fn.complexity}
-                          </span>
-                        </div>
-                      ))}
+                        ),
+                      )}
                     </div>
                   </div>
                 )}
@@ -331,7 +427,9 @@ function App() {
         </section>
 
         <footer className="footer">
-          <span>CodeLens · Python code quality, made clearer.</span>
+          <span>
+            CodeLens · Python code quality, made clearer.
+          </span>
           <span>Powered by open-source analysis tools</span>
         </footer>
       </main>

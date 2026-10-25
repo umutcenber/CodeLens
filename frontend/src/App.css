@@ -182,3 +182,13 @@
     border-right-color: var(--border);
   }
 }
+.issue-recommendation {
+  margin-top: 8px !important;
+  color: #47715a !important;
+  font-size: 11px !important;
+  line-height: 1.7;
+}
+
+.issue-recommendation strong {
+  color: #286b48;
+}
