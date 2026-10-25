@@ -1,4 +1,3 @@
-
 import { useState, type ChangeEvent } from "react";
 import "./App.css";
 
@@ -28,6 +27,11 @@ type AnalysisResult = {
     total_issues: number;
   };
 };
+
+// Local development uses localhost; deployment sets VITE_API_URL.
+const API_BASE_URL = (
+  import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
 
 function getRecommendation(issue: Issue): string | null {
   if (
@@ -77,7 +81,7 @@ function App() {
     setResult(null);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/analyze", {
+      const response = await fetch(`${API_BASE_URL}/api/analyze`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -221,11 +225,7 @@ function App() {
 
           <div className="hero-note">
             <div className="hero-note-icon">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                aria-hidden="true"
-              >
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path
                   d="M12 3 19 6V11C19 15.5 16.1 19.2 12 21C7.9 19.2 5 15.5 5 11V6L12 3Z"
                   stroke="currentColor"
@@ -260,11 +260,7 @@ function App() {
               </div>
 
               <label className="upload-button">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  aria-hidden="true"
-                >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path
                     d="M12 15V4M8 8l4-4 4 4M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"
                     stroke="currentColor"
@@ -387,11 +383,7 @@ function App() {
                 onClick={downloadReport}
                 disabled={!result}
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  aria-hidden="true"
-                >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path
                     d="M12 4v11m-4-4 4 4 4-4M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3"
                     stroke="currentColor"
@@ -410,11 +402,7 @@ function App() {
                   <div className="empty-visual-ring ring-one" />
                   <div className="empty-visual-ring ring-two" />
                   <div className="empty-visual-center">
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      aria-hidden="true"
-                    >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                       <path
                         d="M8 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3M16 3h5v5M21 3l-9 9"
                         stroke="currentColor"
@@ -497,9 +485,7 @@ function App() {
                   <div className="metric-card">
                     <span className="metric-label">Avg. complexity</span>
                     <div className="metric-value-row">
-                      <strong>
-                        {result.metrics.average_complexity ?? "—"}
-                      </strong>
+                      <strong>{result.metrics.average_complexity ?? "—"}</strong>
                       <span className="metric-symbol">
                         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                           <path
